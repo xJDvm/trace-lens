@@ -7,9 +7,10 @@ import re
 from pathlib import Path
 
 import pytest
-from hypothesis import given
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
+from tracelens.config import MAX_JSON_DEPTH
 from tracelens.model import Span
 from tracelens.otlp import (
     DEFAULT_SERVICE_NAME,
@@ -488,6 +489,19 @@ _SPAN_FIELDS = [
 ]
 
 
+_GENERATED_DEPTH_LIMIT = MAX_JSON_DEPTH - 8
+"""Levels left for generated values once the request envelope around them is counted."""
+
+
+def _depth(value: object) -> int:
+    """Container nesting depth of a generated JSON value; scalars have depth 0."""
+    if isinstance(value, list):
+        return 1 + max((_depth(item) for item in value), default=0)
+    if isinstance(value, dict):
+        return 1 + max((_depth(item) for item in value.values()), default=0)
+    return 0
+
+
 def _assert_span_invariants(span: Span) -> None:
     assert _HEX32.fullmatch(span.trace_id) is not None
     assert span.trace_id.strip("0")
@@ -521,6 +535,7 @@ def test_arbitrary_json_document_never_raises(document: object) -> None:
 def test_mutated_span_is_counted_and_valid_spans_keep_invariants(
     field: str, value: object, service: object
 ) -> None:
+    assume(_depth(value) <= _GENERATED_DEPTH_LIMIT and _depth(service) <= _GENERATED_DEPTH_LIMIT)
     mutated = _base_span()
     mutated[field] = value
     attributes = [{"key": "service.name", "value": service}]
@@ -535,6 +550,7 @@ def test_mutated_span_is_counted_and_valid_spans_keep_invariants(
 
 @given(value=_JSON_VALUES)
 def test_arbitrary_span_entry_is_rejected_or_valid(value: object) -> None:
+    assume(_depth(value) <= _GENERATED_DEPTH_LIMIT)
     result = _parsed(_request(value))
 
     assert len(result.spans) + result.rejected == 1

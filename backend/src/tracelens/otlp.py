@@ -14,11 +14,24 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import NamedTuple, NoReturn, TypeGuard
 
+from tracelens.config import (
+    MAX_ATTRIBUTE_KEY_CHARS,
+    MAX_ATTRIBUTE_VALUE_CHARS,
+    MAX_ATTRIBUTES_PER_SPAN,
+    MAX_BODY_BYTES,
+    MAX_JSON_DEPTH,
+    MAX_NAME_CHARS,
+    MAX_SPANS_PER_REQUEST,
+    MAX_STATUS_MESSAGE_CHARS,
+)
 from tracelens.model import AttrValue, Span
 
 DEFAULT_SERVICE_NAME = "unknown_service"
 
 _SERVICE_NAME_KEY = "service.name"
+# String literals (consumed whole, escapes included) and brackets are the only tokens that
+# affect nesting depth. Any other byte is skipped by the scanner.
+_NESTING_TOKEN = re.compile(rb'"(?:[^"\\]++|\\.)*+"?|[\[\]{}]', re.DOTALL)
 _MIN_INT64 = -(2**63)
 _MAX_INT64 = 2**63 - 1
 _MAX_SPAN_KIND = 5
@@ -62,6 +75,13 @@ class _FieldError(_ParseError):
     """A span or resource field is invalid, so only the affected spans are rejected."""
 
 
+class _SpanGroup(NamedTuple):
+    """The raw spans of one ``resourceSpans`` entry, with its resource attributes not yet decoded."""
+
+    resource_attributes: list[object]
+    entries: list[tuple[str, object]]
+
+
 class _Attribute(NamedTuple):
     """A decoded attribute together with the OTLP value kind it came from."""
 
@@ -82,11 +102,12 @@ def parse_export_request(raw: bytes) -> ParseResult | RequestError:
     """Parse an ``ExportTraceServiceRequest`` JSON body.
 
     Args:
-        raw: The request body. It must be UTF-8 encoded JSON.
+        raw: The request body. It must be UTF-8 encoded JSON within ``MAX_BODY_BYTES``.
 
     Returns:
         A :class:`ParseResult` with the valid spans and the rejected count, or a
-        :class:`RequestError` if the body is not JSON or its envelope has the wrong shape.
+        :class:`RequestError` if the body is too large, nested too deeply, not JSON, or its
+        envelope has the wrong shape or too many spans.
     """
     try:
         return _parse(raw)
@@ -95,18 +116,45 @@ def parse_export_request(raw: bytes) -> ParseResult | RequestError:
 
 
 def _parse(raw: bytes) -> ParseResult:
+    if len(raw) > MAX_BODY_BYTES:
+        raise _EnvelopeError(f"request body exceeds {MAX_BODY_BYTES} bytes")
+    _check_nesting_depth(raw)
     document = _as_object(_decode_json(raw), _EnvelopeError, "request body")
+    groups = [
+        _span_group(item, f"resourceSpans[{index}]")
+        for index, item in enumerate(_array_field(document, "resourceSpans", _EnvelopeError))
+    ]
+    if sum(len(group.entries) for group in groups) > MAX_SPANS_PER_REQUEST:
+        raise _EnvelopeError(f"request contains more than {MAX_SPANS_PER_REQUEST} spans")
     spans: list[Span] = []
     errors: list[str] = []
-    for index, resource_spans in enumerate(_array_field(document, "resourceSpans", _EnvelopeError)):
-        _parse_resource_spans(resource_spans, f"resourceSpans[{index}]", spans, errors)
+    for group in groups:
+        _parse_span_group(group, spans, errors)
     return ParseResult(spans=spans, rejected=len(errors), errors=errors)
+
+
+def _check_nesting_depth(raw: bytes) -> None:
+    """Refuse a body nested deeper than ``MAX_JSON_DEPTH`` before it is decoded.
+
+    The scan is iterative and linear: it visits only brackets and string literals, skipping
+    string contents, so brackets inside strings do not count. Malformed input is left to the
+    decoder, which rejects it anyway.
+    """
+    depth = 0
+    for token in _NESTING_TOKEN.finditer(raw):
+        opener = raw[token.start()]
+        if opener in b"[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise _EnvelopeError(f"request body is nested deeper than {MAX_JSON_DEPTH} levels")
+        elif opener in b"]}":
+            depth -= 1
 
 
 def _decode_json(raw: bytes) -> object:
     try:
         document: object = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
-    except (ValueError, RecursionError) as exc:
+    except ValueError as exc:
         raise _EnvelopeError("request body is not valid JSON") from exc
     return document
 
@@ -116,17 +164,20 @@ def _reject_constant(name: str) -> NoReturn:
     raise ValueError(f"non-standard JSON constant {name}")
 
 
-def _parse_resource_spans(value: object, where: str, spans: list[Span], errors: list[str]) -> None:
+def _span_group(value: object, where: str) -> _SpanGroup:
     resource_spans = _as_object(value, _EnvelopeError, where)
     resource_obj = _object_field(resource_spans, "resource", _EnvelopeError)
     attribute_entries = _array_field(resource_obj, "attributes", _EnvelopeError)
-    entries = _span_entries(resource_spans, where)
+    return _SpanGroup(attribute_entries, _span_entries(resource_spans, where))
+
+
+def _parse_span_group(group: _SpanGroup, spans: list[Span], errors: list[str]) -> None:
     try:
-        resource = _parse_resource(attribute_entries)
+        resource = _parse_resource(group.resource_attributes)
     except _FieldError as exc:
-        errors.extend(f"{path}: {exc}" for path, _ in entries)
+        errors.extend(f"{path}: {exc}" for path, _ in group.entries)
         return
-    for path, entry in entries:
+    for path, entry in group.entries:
         try:
             spans.append(_parse_span(entry, resource))
         except _FieldError as exc:
@@ -155,6 +206,8 @@ def _parse_resource(entries: list[object]) -> _Resource:
                 or not attribute.value
             ):
                 raise _FieldError("attribute 'service.name' must be a non-empty string")
+            if len(attribute.value) > MAX_NAME_CHARS:
+                raise _FieldError(f"attribute 'service.name' exceeds {MAX_NAME_CHARS} characters")
             service = attribute.value
     return _Resource(service=service, attributes=_pairs(attributes))
 
@@ -164,7 +217,7 @@ def _parse_span(entry: object, resource: _Resource) -> Span:
     trace_id = _hex_id(obj.get("traceId"), 32, "traceId")
     span_id = _hex_id(obj.get("spanId"), 16, "spanId")
     parent_span_id = _parent_span_id(obj.get("parentSpanId"))
-    name = _text_field(obj, "name")
+    name = _text_field(obj, "name", MAX_NAME_CHARS)
     kind = _int_field(obj, "kind")
     if not 0 <= kind <= _MAX_SPAN_KIND:
         raise _FieldError("'kind' must be between 0 and 5")
@@ -178,10 +231,13 @@ def _parse_span(entry: object, resource: _Resource) -> Span:
     status_code = _int_field(status, "code")
     if not 0 <= status_code <= _MAX_STATUS_CODE:
         raise _FieldError("'status.code' must be 0, 1 or 2")
-    status_message = _text_field(status, "message")
-    own_attributes = _pairs(
-        _attribute(entry) for entry in _array_field(obj, "attributes", _FieldError)
-    )
+    status_message = _text_field(status, "message", MAX_STATUS_MESSAGE_CHARS)
+    attribute_entries = _array_field(obj, "attributes", _FieldError)
+    if len(resource.attributes) + len(attribute_entries) > MAX_ATTRIBUTES_PER_SPAN:
+        raise _FieldError(
+            f"span has more than {MAX_ATTRIBUTES_PER_SPAN} attributes including resource attributes"
+        )
+    own_attributes = _pairs(_attribute(entry) for entry in attribute_entries)
     return Span(
         trace_id=trace_id,
         span_id=span_id,
@@ -202,6 +258,8 @@ def _attribute(entry: object) -> _Attribute:
     key = obj.get("key")
     if not isinstance(key, str) or not key:
         raise _FieldError("attribute 'key' must be a non-empty string")
+    if len(key) > MAX_ATTRIBUTE_KEY_CHARS:
+        raise _FieldError(f"attribute 'key' exceeds {MAX_ATTRIBUTE_KEY_CHARS} characters")
     value = _as_object(obj.get("value"), _FieldError, "attribute 'value'")
     for kind in _SCALAR_KINDS:
         raw = value.get(kind)
@@ -215,6 +273,10 @@ def _attribute(entry: object) -> _Attribute:
 
 def _scalar_value(kind: str, raw: object) -> AttrValue:
     if kind == "stringValue" and isinstance(raw, str):
+        if len(raw) > MAX_ATTRIBUTE_VALUE_CHARS:
+            raise _FieldError(
+                f"attribute value 'stringValue' exceeds {MAX_ATTRIBUTE_VALUE_CHARS} characters"
+            )
         return raw
     if kind == "boolValue" and isinstance(raw, bool):
         return raw
@@ -295,13 +357,15 @@ def _int_field(obj: dict[str, object], key: str) -> int:
     return value
 
 
-def _text_field(obj: dict[str, object], key: str) -> str:
-    """String field; an absent or null field takes the protobuf default of ``""``."""
+def _text_field(obj: dict[str, object], key: str, max_chars: int) -> str:
+    """String field of at most ``max_chars`` characters; an absent or null field is ``""``."""
     value = obj.get(key)
     if value is None:
         return ""
     if not isinstance(value, str):
         raise _FieldError(f"'{key}' must be a string")
+    if len(value) > max_chars:
+        raise _FieldError(f"'{key}' exceeds {max_chars} characters")
     return value
 
 
