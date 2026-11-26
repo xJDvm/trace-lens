@@ -1,0 +1,143 @@
+/**
+ * Typed client for the trace-lens query API (see `docs/DESIGN.md`, section API).
+ *
+ * Requests are relative, so the Vite dev server proxies them to the backend. Identifiers and
+ * nanosecond values arrive as strings because they can exceed the integer range of JavaScript.
+ */
+
+/** One trace in a list page, as returned by `GET /api/traces`. */
+export interface TraceSummary {
+  readonly traceId: string;
+  readonly startNs: string;
+  readonly endNs: string;
+  readonly durationNs: string;
+  readonly spanCount: number;
+  readonly errorCount: number;
+  readonly rootService: string;
+  readonly rootName: string;
+}
+
+/** One page of traces, newest first. The `next*` fields are `null` past the last page. */
+export interface TracePage {
+  readonly traces: readonly TraceSummary[];
+  readonly nextBefore: string | null;
+  readonly nextBeforeTraceId: string | null;
+}
+
+/** Position of the last trace of the previous page, sent back to fetch the next one. */
+export interface TraceCursor {
+  readonly before: string;
+  readonly beforeTraceId: string;
+}
+
+/** Server-side filters of the trace list. `null` means the filter is not applied. */
+export interface TraceFilters {
+  readonly service: string | null;
+  readonly minMs: number | null;
+  readonly maxMs: number | null;
+  readonly error: boolean | null;
+}
+
+/** An HTTP error answered by the API, carrying the status and the server's message. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/**
+ * Builds the URL of one page of `GET /api/traces`.
+ *
+ * @param filters - Filters to apply; `null` fields are omitted from the query string.
+ * @param cursor - Position to continue from, or `null` for the first page.
+ * @returns A path with its query string, e.g. `/api/traces?service=api&minMs=100`.
+ */
+export function buildTracesUrl(filters: TraceFilters, cursor: TraceCursor | null): string {
+  const params = new URLSearchParams();
+  if (filters.service !== null) {
+    params.set("service", filters.service);
+  }
+  if (filters.minMs !== null) {
+    params.set("minMs", String(filters.minMs));
+  }
+  if (filters.maxMs !== null) {
+    params.set("maxMs", String(filters.maxMs));
+  }
+  if (filters.error !== null) {
+    params.set("error", String(filters.error));
+  }
+  if (cursor !== null) {
+    params.set("before", cursor.before);
+    params.set("beforeTraceId", cursor.beforeTraceId);
+  }
+  const query = params.toString();
+  return query === "" ? "/api/traces" : `/api/traces?${query}`;
+}
+
+/**
+ * The cursor for the page after `page`, or `null` when `page` is the last one.
+ *
+ * @param page - A page returned by `GET /api/traces`.
+ */
+export function nextCursor(page: TracePage): TraceCursor | null {
+  if (page.nextBefore === null || page.nextBeforeTraceId === null) {
+    return null;
+  }
+  return { before: page.nextBefore, beforeTraceId: page.nextBeforeTraceId };
+}
+
+/**
+ * Fetches one page of traces.
+ *
+ * @throws {ApiError} When the API answers with a non-2xx status.
+ */
+export async function fetchTraces(
+  filters: TraceFilters,
+  cursor: TraceCursor | null,
+  signal?: AbortSignal,
+): Promise<TracePage> {
+  const response = await fetch(buildTracesUrl(filters, cursor), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readJson<TracePage>(response);
+}
+
+/**
+ * Fetches the names of the services that have reported spans.
+ *
+ * @throws {ApiError} When the API answers with a non-2xx status.
+ */
+export async function fetchServices(signal?: AbortSignal): Promise<string[]> {
+  const response = await fetch("/api/services", {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readJson<string[]>(response);
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    throw new ApiError(await errorMessage(response), response.status);
+  }
+  return (await response.json()) as T;
+}
+
+/** The `detail` of a FastAPI error body, or a generic message when there is none. */
+async function errorMessage(response: Response): Promise<string> {
+  const body: unknown = await response.json().catch(() => undefined);
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = body.detail;
+    if (typeof detail === "string") {
+      return detail;
+    }
+    if (Array.isArray(detail) && typeof detail[0]?.msg === "string") {
+      return detail[0].msg;
+    }
+  }
+  return `request failed with HTTP ${response.status}`;
+}
