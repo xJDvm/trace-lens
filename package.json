@@ -4,17 +4,7 @@
   "version": "0.1.0",
   "description": "Small self-hosted OpenTelemetry trace backend and UI",
   "license": "MIT",
-  "workspaces": [
-    "web"
-  ],
   "engines": {
     "node": ">=22"
-  },
-  "scripts": {
-    "dev": "echo \"dev: not implemented yet (web workspace pending)\" && exit 0",
-    "typecheck": "echo \"typecheck: not implemented yet (web workspace pending)\" && exit 0",
-    "lint": "echo \"lint: not implemented yet (web workspace pending)\" && exit 0",
-    "test": "echo \"test: not implemented yet (web workspace pending)\" && exit 0",
-    "e2e": "echo \"e2e: not implemented yet (playwright pending)\" && exit 0"
   }
 }

@@ -1297,18 +1297,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi" },
-    { name = "uvicorn" },
+    { name = "fastapi", specifier = ">=0.165,<1" },
+    { name = "uvicorn", specifier = ">=0.54,<1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx" },
-    { name = "hypothesis" },
-    { name = "mypy" },
-    { name = "pip-audit" },
-    { name = "pytest" },
-    { name = "ruff" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "hypothesis", specifier = ">=6.170,<7" },
+    { name = "mypy", specifier = ">=2.4,<3" },
+    { name = "pip-audit", specifier = ">=2.10,<3" },
+    { name = "pytest", specifier = ">=9.2,<10" },
+    { name = "ruff", specifier = ">=0.17,<1" },
 ]
 
 [[package]]

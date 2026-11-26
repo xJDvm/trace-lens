@@ -9,18 +9,18 @@ description = "Small self-hosted OpenTelemetry (OTLP/HTTP JSON) trace backend"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn",
+    "fastapi>=0.165,<1",
+    "uvicorn>=0.54,<1",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest",
-    "hypothesis",
-    "httpx",
-    "ruff",
-    "mypy",
-    "pip-audit",
+    "pytest>=9.2,<10",
+    "hypothesis>=6.170,<7",
+    "httpx>=0.28,<1",
+    "ruff>=0.17,<1",
+    "mypy>=2.4,<3",
+    "pip-audit>=2.10,<3",
 ]
 
 [tool.hatch.build.targets.wheel]

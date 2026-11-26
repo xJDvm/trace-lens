@@ -15,9 +15,9 @@ def test_defaults_bind_loopback_only() -> None:
 
 
 def test_environment_overrides_defaults() -> None:
-    settings = Settings.from_env({"HOST": "10.0.0.5", "PORT": "8080", "DB_PATH": "/data/t.db"})
+    settings = Settings.from_env({"HOST": "192.0.2.5", "PORT": "8080", "DB_PATH": "/data/t.db"})
 
-    assert settings == Settings(host="10.0.0.5", port=8080, db_path="/data/t.db")
+    assert settings == Settings(host="192.0.2.5", port=8080, db_path="/data/t.db")
 
 
 @pytest.mark.parametrize("port", ["1", "65535", "4318"])
