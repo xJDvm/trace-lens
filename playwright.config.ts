@@ -40,7 +40,7 @@ export default defineConfig({
     {
       // Seed the temporary database, then serve it. Both steps run in one shell command so that
       // the backend starts only after the demo traces are stored.
-      command: `uv run --directory backend python -m tracelens.demo --db "$DB_PATH" --traces 200 --seed 7 && uv run --directory backend python -m tracelens`,
+      command: `uv run --directory backend python -m tracelens.demo --db "$DB_PATH" --traces 200 --seed 7 --now && uv run --directory backend python -m tracelens`,
       url: `${API_URL}/api/healthz`,
       env: { DB_PATH, HOST: API_HOST, PORT: String(API_PORT) },
       reuseExistingServer: false,
