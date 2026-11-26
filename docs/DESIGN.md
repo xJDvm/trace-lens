@@ -36,7 +36,7 @@ backend/                 Python 3.11+, uv project (pyproject.toml, uv.lock)
     tree.py              build_tree(spans) -> TraceTree  (pure)
     store.py             Store(path): insert_spans, list_traces, get_trace, services, latency_stats
     stats.py             percentiles(sorted_ns, qs) and histogram(values_ns, buckets) (pure)
-    api.py               create_app(settings, store) -> FastAPI
+    api.py               create_app(store) -> FastAPI
     demo.py              seeded load generator: python -m tracelens.demo
     __main__.py          python -m tracelens  -> uvicorn on settings.host/port
   tests/
@@ -103,8 +103,12 @@ input order; never raises.
 ## API (`api.py`)
 - `POST /v1/traces` — ingestion as above.
 - `GET /api/services` → `["api", "auth", ...]`.
-- `GET /api/traces?service=&minMs=&maxMs=&error=true|false&limit=50(≤200)&before=<start_ns>`
-  → newest-first `TraceSummary[]` + `nextBefore` cursor. Validated with FastAPI `Query` bounds.
+- `GET /api/traces?service=&minMs=&maxMs=&error=true|false&limit=50(≤500)&before=<start_ns>&beforeTraceId=<32 hex>`
+  → `{traces: TraceSummary[], nextBefore: "<start_ns>"|null, nextBeforeTraceId: "<32 hex>"|null}`,
+  newest first. The cursor is the `(start_ns, trace_id)` pair of the last trace of a page, sent
+  back as `before` and `beforeTraceId`; the store orders by that pair, so traces sharing a start
+  time are neither lost nor repeated across pages. Both cursor fields are `null` unless the page
+  is full. `beforeTraceId` without `before` → `422`. Validated with FastAPI `Query` bounds.
 - `GET /api/traces/{trace_id}` (32 hex) → `{summary, rows:[{span…, depth, offsetNs}], orphans}`; 404.
 - `GET /api/stats/latency?service=&name=` → `{count, p50, p95, p99, histogram:[{leNs, count}]}`
   over the last 10 000 matching spans (exact nearest-rank percentiles; t-digest later).

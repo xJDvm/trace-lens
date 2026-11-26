@@ -260,6 +260,7 @@ def _attribute(entry: object) -> _Attribute:
         raise _FieldError("attribute 'key' must be a non-empty string")
     if len(key) > MAX_ATTRIBUTE_KEY_CHARS:
         raise _FieldError(f"attribute 'key' exceeds {MAX_ATTRIBUTE_KEY_CHARS} characters")
+    _check_utf8(key, "attribute 'key'")
     value = _as_object(obj.get("value"), _FieldError, "attribute 'value'")
     for kind in _SCALAR_KINDS:
         raw = value.get(kind)
@@ -277,6 +278,7 @@ def _scalar_value(kind: str, raw: object) -> AttrValue:
             raise _FieldError(
                 f"attribute value 'stringValue' exceeds {MAX_ATTRIBUTE_VALUE_CHARS} characters"
             )
+        _check_utf8(raw, "attribute value 'stringValue'")
         return raw
     if kind == "boolValue" and isinstance(raw, bool):
         return raw
@@ -366,7 +368,20 @@ def _text_field(obj: dict[str, object], key: str, max_chars: int) -> str:
         raise _FieldError(f"'{key}' must be a string")
     if len(value) > max_chars:
         raise _FieldError(f"'{key}' exceeds {max_chars} characters")
+    _check_utf8(value, f"'{key}'")
     return value
+
+
+def _check_utf8(text: str, what: str) -> None:
+    """Refuse text that cannot be encoded as UTF-8, such as an unpaired surrogate.
+
+    ``json.loads`` accepts escapes like ``"\\ud800"`` and yields a lone surrogate, which the
+    store could not write to SQLite.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise _FieldError(f"{what} must be valid UTF-8 text") from exc
 
 
 def _pairs(attributes: Iterable[_Attribute]) -> tuple[tuple[str, AttrValue], ...]:
