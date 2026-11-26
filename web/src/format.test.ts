@@ -4,12 +4,24 @@ import {
   attributeText,
   durationPercent,
   formatDuration,
+  formatOptionalDuration,
   formatRelativeTime,
   statusLabel,
 } from "./format";
 
 const MS = 1_000_000n;
 const SECOND = 1_000n * MS;
+
+describe("formatOptionalDuration", () => {
+  it("formats a decimal string of nanoseconds", () => {
+    expect(formatOptionalDuration("12345678")).toBe("12.3 ms");
+    expect(formatOptionalDuration("0")).toBe("0 ns");
+  });
+
+  it("shows an em dash when there is no value", () => {
+    expect(formatOptionalDuration(null)).toBe("—");
+  });
+});
 
 describe("formatDuration", () => {
   it("shows whole nanoseconds below one microsecond", () => {

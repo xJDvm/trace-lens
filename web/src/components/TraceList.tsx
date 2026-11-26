@@ -10,7 +10,7 @@ import {
 } from "../api";
 import { EMPTY_FILTER_TEXT, parseFilters, type FilterText } from "../filters";
 import { durationPercent, formatDuration, formatRelativeTime } from "../format";
-import { traceHash } from "../route";
+import { latencyHash, traceHash } from "../route";
 
 /** A page to load: the first page of a filter set, or the page after `cursor` when appending. */
 interface PageRequest {
@@ -164,6 +164,10 @@ export function TraceList() {
           </select>
         </label>
       </div>
+
+      <a className="latency-link" href={latencyHash(text.service)}>
+        Latency and histogram
+      </a>
 
       {message !== null && (
         <p className="message message-error" role="alert">

@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
+  buildLatencyUrl,
   buildTracesUrl,
+  fetchLatency,
   fetchServices,
   fetchTrace,
   fetchTraces,
+  type LatencyStats,
   nextCursor,
   type TraceFilters,
   type TracePage,
@@ -38,6 +41,18 @@ describe("buildTracesUrl", () => {
     const params = new URL(buildTracesUrl(NO_FILTERS, CURSOR), "http://localhost").searchParams;
     expect(params.get("before")).toBe(CURSOR.before);
     expect(params.get("beforeTraceId")).toBe(CURSOR.beforeTraceId);
+  });
+});
+
+describe("buildLatencyUrl", () => {
+  it("names the service in the query string", () => {
+    expect(buildLatencyUrl("checkout")).toBe("/api/stats/latency?service=checkout");
+  });
+
+  it("percent-encodes names with reserved characters", () => {
+    const params = new URL(buildLatencyUrl("a&b=c d"), "http://localhost").searchParams;
+    expect(params.get("service")).toBe("a&b=c d");
+    expect(params.has("name")).toBe(false);
   });
 });
 
@@ -121,6 +136,23 @@ describe("fetch helpers", () => {
       status: 404,
       message: "trace not found",
     });
+  });
+
+  it("returns the latency statistics of a service", async () => {
+    const stats: LatencyStats = {
+      count: 2,
+      p50: "1000",
+      p95: null,
+      p99: null,
+      histogram: [{ leNs: "1000", count: 2 }],
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(stats)));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchLatency("checkout")).resolves.toEqual(stats);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/stats/latency?service=checkout",
+      expect.anything(),
+    );
   });
 
   it("falls back to the status when the error body is not JSON", async () => {

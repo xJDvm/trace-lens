@@ -59,6 +59,16 @@ export function formatDuration(ns: bigint): string {
 }
 
 /**
+ * Formats a duration that the API may leave empty, e.g. a percentile of a service without spans.
+ *
+ * @param ns - Duration in nanoseconds as a decimal string, or `null` when there is no value.
+ * @returns The formatted duration, or an em dash for `null`.
+ */
+export function formatOptionalDuration(ns: string | null): string {
+  return ns === null ? "—" : formatDuration(BigInt(ns));
+}
+
+/**
  * Describes when a trace started, relative to the current time, e.g. `5 minutes ago`.
  *
  * @param startNs - Start time in nanoseconds since the Unix epoch.

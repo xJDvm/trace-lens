@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { LatencyView } from "./components/LatencyView";
 import { TraceList } from "./components/TraceList";
 import { TraceView } from "./components/TraceView";
 import { parseRoute, type Route } from "./route";
@@ -14,14 +15,22 @@ export function App() {
         <p className="tagline">Self-hosted OpenTelemetry traces</p>
       </header>
       <main>
-        {route.screen === "trace" ? (
-          <TraceView key={route.traceId} traceId={route.traceId} />
-        ) : (
-          <TraceList />
-        )}
+        {renderScreen(route)}
       </main>
     </div>
   );
+}
+
+/** The screen of a route. */
+function renderScreen(route: Route): ReactNode {
+  switch (route.screen) {
+    case "list":
+      return <TraceList />;
+    case "trace":
+      return <TraceView key={route.traceId} traceId={route.traceId} />;
+    case "latency":
+      return <LatencyView service={route.service} />;
+  }
 }
 
 /** The current route, kept in step with the location hash. */

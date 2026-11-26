@@ -77,7 +77,8 @@ h2 {
   color: var(--muted);
 }
 
-.trace-list {
+.trace-list,
+.latency-view {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -256,6 +257,85 @@ tbody tr:hover {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+.latency-controls {
+  max-width: 320px;
+  margin-bottom: 16px;
+}
+
+.latency-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.latency-link {
+  display: inline-block;
+  margin-bottom: 16px;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.latency-link:hover,
+.latency-link:focus-visible {
+  text-decoration: underline;
+}
+
+.latency-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+.latency-tile {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.latency-tile dt {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.latency-tile dd {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.latency-chart {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+
+.hist-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.hist-bar {
+  fill: var(--bar);
+}
+
+.hist-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .trace-view {
@@ -503,7 +583,8 @@ tbody tr:hover {
     padding: 16px;
   }
 
-  .trace-list {
+  .trace-list,
+  .latency-view {
     padding: 14px;
   }
 

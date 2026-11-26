@@ -79,6 +79,25 @@ export interface TraceDetail {
   readonly orphans: number;
 }
 
+/** One bucket of a latency histogram. Its bounds are `(previous leNs, leNs]`. */
+export interface LatencyBucket {
+  /** Upper bound of the bucket in nanoseconds, as a decimal string. */
+  readonly leNs: string;
+  readonly count: number;
+}
+
+/**
+ * Latency statistics of the most recent spans of a service, as returned by
+ * `GET /api/stats/latency`. The percentiles are `null` when there are no spans.
+ */
+export interface LatencyStats {
+  readonly count: number;
+  readonly p50: string | null;
+  readonly p95: string | null;
+  readonly p99: string | null;
+  readonly histogram: readonly LatencyBucket[];
+}
+
 /** An HTTP error answered by the API, carrying the status and the server's message. */
 export class ApiError extends Error {
   readonly status: number;
@@ -159,6 +178,29 @@ export async function fetchServices(signal?: AbortSignal): Promise<string[]> {
     signal,
   });
   return readJson<string[]>(response);
+}
+
+/**
+ * Builds the URL of `GET /api/stats/latency` for one service.
+ *
+ * @param service - The service name; it is percent-encoded in the query string.
+ * @returns A path such as `/api/stats/latency?service=checkout`.
+ */
+export function buildLatencyUrl(service: string): string {
+  return `/api/stats/latency?${new URLSearchParams({ service }).toString()}`;
+}
+
+/**
+ * Fetches the latency statistics of one service.
+ *
+ * @throws {ApiError} When the API answers with a non-2xx status, e.g. 422 for an invalid name.
+ */
+export async function fetchLatency(service: string, signal?: AbortSignal): Promise<LatencyStats> {
+  const response = await fetch(buildLatencyUrl(service), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readJson<LatencyStats>(response);
 }
 
 /**
