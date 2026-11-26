@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { durationPercent, formatDuration, formatRelativeTime } from "./format";
+import {
+  attributeText,
+  durationPercent,
+  formatDuration,
+  formatRelativeTime,
+  statusLabel,
+} from "./format";
 
 const MS = 1_000_000n;
 const SECOND = 1_000n * MS;
@@ -82,5 +88,35 @@ describe("durationPercent", () => {
 
   it("returns 0 when the maximum is zero", () => {
     expect(durationPercent(5n, 0n)).toBe(0);
+  });
+});
+
+describe("attributeText", () => {
+  it("returns string values as they are, including the empty string", () => {
+    expect(attributeText({ stringValue: "GET" })).toBe("GET");
+    expect(attributeText({ stringValue: "" })).toBe("");
+  });
+
+  it("keeps the digits of integers beyond the safe range", () => {
+    expect(attributeText({ intValue: "9223372036854775807" })).toBe("9223372036854775807");
+  });
+
+  it("writes doubles and booleans as they are written in code", () => {
+    expect(attributeText({ doubleValue: 0.5 })).toBe("0.5");
+    expect(attributeText({ doubleValue: 3 })).toBe("3");
+    expect(attributeText({ boolValue: true })).toBe("true");
+    expect(attributeText({ boolValue: false })).toBe("false");
+  });
+});
+
+describe("statusLabel", () => {
+  it("names the three OpenTelemetry status codes", () => {
+    expect(statusLabel(0)).toBe("Unset");
+    expect(statusLabel(1)).toBe("OK");
+    expect(statusLabel(2)).toBe("Error");
+  });
+
+  it("shows undefined codes by number", () => {
+    expect(statusLabel(7)).toBe("Code 7");
   });
 });

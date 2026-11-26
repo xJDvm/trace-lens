@@ -38,6 +38,47 @@ export interface TraceFilters {
   readonly error: boolean | null;
 }
 
+/**
+ * An attribute value in the OTLP JSON mapping. Integers travel as strings, since they can exceed
+ * the safe integer range of JavaScript.
+ */
+export type AttributeValue =
+  | { readonly stringValue: string }
+  | { readonly intValue: string }
+  | { readonly doubleValue: number }
+  | { readonly boolValue: boolean };
+
+/** One attribute of a span, as returned by `GET /api/traces/{trace_id}`. */
+export interface SpanAttribute {
+  readonly key: string;
+  readonly value: AttributeValue;
+}
+
+/** One span of a trace, placed in the waterfall by its `depth` and `offsetNs`. */
+export interface SpanRow {
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly parentSpanId: string | null;
+  readonly service: string;
+  readonly name: string;
+  readonly kind: number;
+  readonly startNs: string;
+  readonly endNs: string;
+  readonly durationNs: string;
+  readonly statusCode: number;
+  readonly statusMessage: string;
+  readonly attributes: readonly SpanAttribute[];
+  readonly depth: number;
+  readonly offsetNs: string;
+}
+
+/** A trace with its spans in waterfall order, as returned by `GET /api/traces/{trace_id}`. */
+export interface TraceDetail {
+  readonly summary: TraceSummary;
+  readonly rows: readonly SpanRow[];
+  readonly orphans: number;
+}
+
 /** An HTTP error answered by the API, carrying the status and the server's message. */
 export class ApiError extends Error {
   readonly status: number;
@@ -118,6 +159,20 @@ export async function fetchServices(signal?: AbortSignal): Promise<string[]> {
     signal,
   });
   return readJson<string[]>(response);
+}
+
+/**
+ * Fetches one trace with its span tree.
+ *
+ * @param traceId - The 32-character hex trace id.
+ * @throws {ApiError} When the API answers with a non-2xx status, e.g. 404 for an unknown trace.
+ */
+export async function fetchTrace(traceId: string, signal?: AbortSignal): Promise<TraceDetail> {
+  const response = await fetch(`/api/traces/${encodeURIComponent(traceId)}`, {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readJson<TraceDetail>(response);
 }
 
 async function readJson<T>(response: Response): Promise<T> {

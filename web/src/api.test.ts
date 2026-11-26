@@ -4,6 +4,7 @@ import {
   ApiError,
   buildTracesUrl,
   fetchServices,
+  fetchTrace,
   fetchTraces,
   nextCursor,
   type TraceFilters,
@@ -11,6 +12,7 @@ import {
 } from "./api";
 
 const NO_FILTERS: TraceFilters = { service: null, minMs: null, maxMs: null, error: null };
+const TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
 const CURSOR = { before: "1700000000000000000", beforeTraceId: "a".repeat(32) };
 
 describe("buildTracesUrl", () => {
@@ -95,6 +97,29 @@ describe("fetch helpers", () => {
     );
     await expect(fetchTraces(NO_FILTERS, null)).rejects.toMatchObject({
       message: "Input should be less than or equal to 500",
+    });
+  });
+
+  it("requests one trace by its id and returns the detail", async () => {
+    const detail = {
+      summary: { traceId: TRACE_ID },
+      rows: [],
+      orphans: 0,
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(detail)));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchTrace(TRACE_ID)).resolves.toEqual(detail);
+    expect(fetchMock).toHaveBeenCalledWith(`/api/traces/${TRACE_ID}`, expect.anything());
+  });
+
+  it("raises an ApiError with the detail of a 404", async () => {
+    vi.stubGlobal(
+      "fetch",
+      () => Promise.resolve(Response.json({ detail: "trace not found" }, { status: 404 })),
+    );
+    await expect(fetchTrace(TRACE_ID)).rejects.toMatchObject({
+      status: 404,
+      message: "trace not found",
     });
   });
 

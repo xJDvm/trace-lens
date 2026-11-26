@@ -1,7 +1,9 @@
 /**
- * Pure formatting helpers for the trace list. Times arrive from the API as decimal strings of
- * nanoseconds, so they are handled as `bigint` to stay exact above 2^53.
+ * Pure formatting helpers for the trace list and the trace view. Times arrive from the API as
+ * decimal strings of nanoseconds, so they are handled as `bigint` to stay exact above 2^53.
  */
+
+import type { AttributeValue } from "./api";
 
 interface DurationUnit {
   readonly suffix: string;
@@ -84,6 +86,35 @@ export function durationPercent(ns: bigint, maxNs: bigint): number {
     return 0;
   }
   return Number((ns * 10_000n) / maxNs) / 100;
+}
+
+/**
+ * The text of an attribute value. Booleans and numbers are written as they would be in code.
+ *
+ * @param value - An attribute value in the OTLP JSON mapping.
+ */
+export function attributeText(value: AttributeValue): string {
+  if ("stringValue" in value) {
+    return value.stringValue;
+  }
+  if ("intValue" in value) {
+    return value.intValue;
+  }
+  if ("doubleValue" in value) {
+    return String(value.doubleValue);
+  }
+  return String(value.boolValue);
+}
+
+const STATUS_LABELS: Readonly<Record<number, string>> = { 0: "Unset", 1: "OK", 2: "Error" };
+
+/**
+ * The name of a span status code: `0` is unset, `1` is OK and `2` is error.
+ *
+ * @returns The label, or `Code <n>` for a code the OpenTelemetry specification does not define.
+ */
+export function statusLabel(code: number): string {
+  return STATUS_LABELS[code] ?? `Code ${code}`;
 }
 
 function unitAt(index: number): DurationUnit {
