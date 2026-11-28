@@ -563,3 +563,126 @@ def test_latency_rejects_empty_name_filter(client: TestClient) -> None:
     response = client.get("/api/stats/latency", params={"name": ""})
 
     assert response.status_code == 422
+
+
+# Queries: service map --------------------------------------------------------------------------
+
+
+def _service_map(client: TestClient, **params: object) -> dict[str, Any]:
+    response = client.get("/api/service-map", params=params)
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def _chain_trace(client: TestClient, trace: str, start_ns: int, error: int = 0) -> None:
+    """gateway calls orders (which may fail), orders calls db; each service in its own batch."""
+    _ingest(client, "gateway", [_span(trace, "0000000000000001", start_ns=start_ns)])
+    _ingest(
+        client,
+        "orders",
+        [
+            _span(
+                trace,
+                "0000000000000002",
+                parent="0000000000000001",
+                start_ns=start_ns,
+                status_code=error,
+            )
+        ],
+    )
+    _ingest(
+        client,
+        "db",
+        [_span(trace, "0000000000000003", parent="0000000000000002", start_ns=start_ns)],
+    )
+
+
+def test_service_map_of_empty_store_is_empty(client: TestClient) -> None:
+    assert _service_map(client) == {"nodes": [], "edges": []}
+
+
+def test_service_map_has_nodes_with_incoming_totals_and_sorted_edges(client: TestClient) -> None:
+    _chain_trace(client, TRACE, START_NS, error=ERROR_STATUS)
+
+    body = _service_map(client)
+
+    assert set(body) == {"nodes", "edges"}
+    assert body["edges"] == [
+        {"caller": "gateway", "callee": "orders", "calls": 1, "errors": 1},
+        {"caller": "orders", "callee": "db", "calls": 1, "errors": 0},
+    ]
+    assert body["nodes"] == [
+        {"service": "db", "calls": 1, "errors": 0},
+        {"service": "gateway", "calls": 0, "errors": 0},
+        {"service": "orders", "calls": 1, "errors": 1},
+    ]
+
+
+def test_service_map_lists_root_service_without_edges(client: TestClient) -> None:
+    _ingest(client, "solo", [_span(TRACE, "0000000000000001")])
+
+    assert _service_map(client) == {
+        "nodes": [{"service": "solo", "calls": 0, "errors": 0}],
+        "edges": [],
+    }
+
+
+def test_service_map_sums_calls_over_traces(client: TestClient) -> None:
+    _chain_trace(client, TRACE, START_NS, error=ERROR_STATUS)
+    _chain_trace(client, OTHER_TRACE, START_NS + 1)
+
+    body = _service_map(client)
+
+    assert body["edges"] == [
+        {"caller": "gateway", "callee": "orders", "calls": 2, "errors": 1},
+        {"caller": "orders", "callee": "db", "calls": 2, "errors": 0},
+    ]
+    assert {"service": "orders", "calls": 2, "errors": 1} in body["nodes"]
+
+
+def test_service_map_since_ns_skips_older_traces(client: TestClient) -> None:
+    _chain_trace(client, TRACE, START_NS)
+    _ingest(client, "old", [_span(OTHER_TRACE, "0000000000000001", start_ns=START_NS - 1)])
+
+    body = _service_map(client, sinceNs=START_NS)
+
+    assert [node["service"] for node in body["nodes"]] == ["db", "gateway", "orders"]
+    assert body["edges"][0]["calls"] == 1
+    assert _service_map(client, sinceNs=START_NS + 1) == {"nodes": [], "edges": []}
+
+
+def test_service_map_traces_limit_keeps_most_recent(client: TestClient) -> None:
+    _ingest(client, "old", [_span(TRACE, "0000000000000001", start_ns=START_NS)])
+    _chain_trace(client, OTHER_TRACE, START_NS + 1)
+
+    body = _service_map(client, traces=1)
+
+    assert [node["service"] for node in body["nodes"]] == ["db", "gateway", "orders"]
+    assert "old" not in {node["service"] for node in body["nodes"]}
+
+
+@pytest.mark.parametrize("value", ["0", "9223372036854775807"])
+def test_service_map_accepts_valid_since_ns(client: TestClient, value: str) -> None:
+    assert _service_map(client, sinceNs=value) == {"nodes": [], "edges": []}
+
+
+@pytest.mark.parametrize(
+    "value", ["", "-1", "1.5", "1e3", " 1", "0x1f", "1" * 20, "9223372036854775808"]
+)
+def test_malformed_or_overflowing_since_ns_is_422(client: TestClient, value: str) -> None:
+    response = client.get("/api/service-map", params={"sinceNs": value})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("traces", [0, -1, 1001, "many"])
+def test_out_of_range_service_map_traces_is_422(client: TestClient, traces: object) -> None:
+    response = client.get("/api/service-map", params={"traces": traces})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("traces", [1, 1000])
+def test_service_map_traces_at_bounds_is_accepted(client: TestClient, traces: int) -> None:
+    assert _service_map(client, traces=traces) == {"nodes": [], "edges": []}

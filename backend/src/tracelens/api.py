@@ -18,17 +18,20 @@ from tracelens.config import MAX_BODY_BYTES, MAX_NAME_CHARS
 from tracelens.model import AttrValue, Span
 from tracelens.otlp import ParseResult, RequestError, parse_export_request
 from tracelens.stats import default_bounds, histogram, percentiles
-from tracelens.store import Store, TraceSummary
+from tracelens.store import ServiceEdge, Store, TraceSummary
 from tracelens.tree import Row, build_tree
 
 DEFAULT_TRACE_LIMIT = 50
 MAX_TRACE_LIMIT = 500
+DEFAULT_SERVICE_MAP_TRACES = 500
+MAX_SERVICE_MAP_TRACES = 1000
 LATENCY_SAMPLE_SIZE = 10_000
 """Number of most recent matching spans that the latency statistics are computed over."""
 _MAX_INT64 = 2**63 - 1
 _NANOS_PER_MS = 1_000_000
 _MAX_DURATION_MS = _MAX_INT64 // _NANOS_PER_MS
 _TRACE_ID_PATTERN = r"^[0-9a-fA-F]{32}$"
+_SINCE_NS_PATTERN = r"^[0-9]{1,19}$"
 _LATENCY_QUANTILES = (50, 95, 99)
 
 
@@ -134,6 +137,32 @@ def create_app(store: Store) -> FastAPI:
             ],
         }
 
+    @app.get("/api/service-map")
+    def service_map(
+        since_ns: Annotated[str | None, Query(alias="sinceNs", pattern=_SINCE_NS_PATTERN)] = None,
+        traces: Annotated[int, Query(ge=1, le=MAX_SERVICE_MAP_TRACES)] = (
+            DEFAULT_SERVICE_MAP_TRACES
+        ),
+    ) -> dict[str, object]:
+        """Services and cross-service call edges of the ``traces`` most recent traces.
+
+        ``sinceNs`` restricts the traces to those starting at or after that time. Every service
+        in an edge or in the root span of a considered trace is a node. A node's ``calls`` and
+        ``errors`` count the incoming edges only.
+        """
+        since = None if since_ns is None else int(since_ns)
+        if since is not None and since > _MAX_INT64:
+            raise HTTPException(status_code=422, detail="sinceNs exceeds the 64-bit range")
+        edges = store.service_edges(since, traces)
+        # Newest-first ordering makes the traces at or after ``since`` a prefix of the store's
+        # ordering, so filtering the most recent ``traces`` summaries gives the same set that
+        # ``service_edges`` aggregates over.
+        recent = store.list_traces(None, None, None, None, traces)
+        roots = {
+            summary.root_service for summary in recent if since is None or summary.start_ns >= since
+        }
+        return _service_map_json(edges, roots)
+
     return app
 
 
@@ -203,6 +232,31 @@ def _summary_json(summary: TraceSummary) -> dict[str, object]:
         "errorCount": summary.error_count,
         "rootService": summary.root_service,
         "rootName": summary.root_name,
+    }
+
+
+def _service_map_json(edges: list[ServiceEdge], roots: set[str]) -> dict[str, object]:
+    """The service map in its JSON shape: nodes sorted by service, edges as given."""
+    incoming: dict[str, list[int]] = {service: [0, 0] for service in roots}
+    for edge in edges:
+        incoming.setdefault(edge.caller, [0, 0])
+        totals = incoming.setdefault(edge.callee, [0, 0])
+        totals[0] += edge.calls
+        totals[1] += edge.errors
+    return {
+        "nodes": [
+            {"service": service, "calls": totals[0], "errors": totals[1]}
+            for service, totals in sorted(incoming.items())
+        ],
+        "edges": [
+            {
+                "caller": edge.caller,
+                "callee": edge.callee,
+                "calls": edge.calls,
+                "errors": edge.errors,
+            }
+            for edge in edges
+        ],
     }
 
 
