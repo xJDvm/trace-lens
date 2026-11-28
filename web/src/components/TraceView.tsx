@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { fetchTrace, type SpanAttribute, type SpanRow, type TraceDetail } from "../api";
 import { attributeText, formatDuration, statusLabel } from "../format";
+import { FlameGraph } from "./FlameGraph";
 import {
   barLayout,
   serviceColor,
@@ -16,6 +17,15 @@ const STATUS_ERROR = 2;
 /** Indentation per tree level, in pixels, and the level after which indentation stops growing. */
 const INDENT_PX = 12;
 const MAX_INDENT_LEVELS = 12;
+
+/** The two views of a trace. */
+type TraceTab = "waterfall" | "flame";
+
+/** The tabs above the trace body, in display order. */
+const TRACE_TABS: readonly { readonly tab: TraceTab; readonly label: string }[] = [
+  { tab: "waterfall", label: "Waterfall" },
+  { tab: "flame", label: "Flame graph" },
+];
 
 interface TraceViewProps {
   /** The 32-character hex id of the trace to show. */
@@ -80,6 +90,7 @@ interface TraceContentProps {
 
 function TraceContent({ trace }: TraceContentProps) {
   const [selected, setSelected] = useState(0);
+  const [tab, setTab] = useState<TraceTab>("waterfall");
   const totalNs = useMemo(() => traceExtentNs(trace.rows.map(rowExtent)), [trace.rows]);
   const ticks = useMemo(() => timeScale(totalNs), [totalNs]);
   const services = new Set(trace.rows.map((row) => row.service));
@@ -105,28 +116,50 @@ function TraceContent({ trace }: TraceContentProps) {
         </p>
       </header>
 
-      <div className="trace-body">
-        <div className="waterfall" role="group" aria-label="Spans">
-          <div className="wf-grid wf-head" aria-hidden="true">
-            <span>Span</span>
-            <Scale ticks={ticks} />
-          </div>
-          <ol className="wf-rows">
-            {trace.rows.map((row, index) => (
-              <WaterfallRow
-                key={`${row.traceId}-${row.spanId}`}
-                row={row}
-                totalNs={totalNs}
-                selected={index === selected}
-                onSelect={() => {
-                  setSelected(index);
-                }}
-              />
-            ))}
-          </ol>
-        </div>
+      <div className="view-tabs" role="group" aria-label="View">
+        {TRACE_TABS.map(({ tab: value, label }) => (
+          <button
+            key={value}
+            type="button"
+            className="view-tab"
+            aria-pressed={tab === value}
+            onClick={() => {
+              setTab(value);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {chosen !== undefined && <SpanDetails row={chosen} />}
+      <div className="trace-body">
+        {tab === "waterfall" ? (
+          <>
+            <div className="waterfall" role="group" aria-label="Spans">
+              <div className="wf-grid wf-head" aria-hidden="true">
+                <span>Span</span>
+                <Scale ticks={ticks} />
+              </div>
+              <ol className="wf-rows">
+                {trace.rows.map((row, index) => (
+                  <WaterfallRow
+                    key={`${row.traceId}-${row.spanId}`}
+                    row={row}
+                    totalNs={totalNs}
+                    selected={index === selected}
+                    onSelect={() => {
+                      setSelected(index);
+                    }}
+                  />
+                ))}
+              </ol>
+            </div>
+
+            {chosen !== undefined && <SpanDetails row={chosen} />}
+          </>
+        ) : (
+          <FlameGraph spans={trace.rows} />
+        )}
       </div>
     </>
   );

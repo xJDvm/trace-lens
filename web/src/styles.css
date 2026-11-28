@@ -652,6 +652,64 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.view-tab {
+  width: auto;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.view-tab[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* The drawing keeps a minimum width, so that its labels stay readable on a phone and scroll. */
+.flame {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.flame-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.flame-chart {
+  display: block;
+  max-width: none;
+}
+
+.flame-frame {
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.flame-frame:hover {
+  stroke: var(--text);
+}
+
+.flame-frame-error {
+  fill: var(--error);
+}
+
+/* Labels sit on the service colours, which are light, so they take the dark background colour. */
+.flame-label {
+  fill: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 @media (min-width: 900px) {
   .trace-body {
     grid-template-columns: minmax(0, 1fr) 320px;
