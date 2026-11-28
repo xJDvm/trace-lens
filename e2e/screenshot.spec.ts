@@ -7,6 +7,8 @@ const DOCS_DIR = fileURLToPath(new URL("../docs/", import.meta.url));
 
 // Two device pixels per CSS pixel keep the README images sharp on high-DPI screens.
 test.use({ deviceScaleFactor: 2, viewport: { width: 1200, height: 800 } });
+// The images are regenerated on demand only, so a normal run never rewrites files in docs/.
+test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to regenerate the README images");
 
 test("screenshot: error trace waterfall and trace list for the README", async ({ page }) => {
   await page.goto("/#/");
@@ -40,4 +42,29 @@ test("screenshot: error trace waterfall and trace list for the README", async ({
   const view = page.getByRole("region", { name: "Trace", exact: true });
   await expect(view).toBeVisible();
   await view.screenshot({ path: `${DOCS_DIR}screenshot.png`, animations: "disabled" });
+});
+
+test("screenshot: service map for the README", async ({ page }) => {
+  await page.goto("/#/map");
+
+  const map = page.getByRole("region", { name: "Service map" });
+  await expect(map.getByRole("link").first()).toBeVisible();
+  await map.screenshot({ path: `${DOCS_DIR}service-map.png`, animations: "disabled" });
+});
+
+test("screenshot: flame graph of a trace for the README", async ({ page }) => {
+  await page.goto("/#/");
+
+  const rows = page.getByTestId("trace-row");
+  await expect(rows.first()).toBeVisible();
+  await rows.first().getByRole("link").click();
+  await expect(page).toHaveURL(/#\/trace\/[0-9a-f]{32}$/);
+
+  await page.getByRole("button", { name: "Flame graph", exact: true }).click();
+  const flame = page.getByRole("group", { name: "Flame graph of the spans" });
+  await expect(flame.locator(".flame-frame").first()).toBeVisible();
+  await page.getByRole("region", { name: "Trace", exact: true }).screenshot({
+    path: `${DOCS_DIR}flame.png`,
+    animations: "disabled",
+  });
 });

@@ -54,3 +54,41 @@ test("latency view shows percentile tiles and a histogram for a service", async 
   await expect(tiles.first().locator("dt")).toHaveText("p50");
   await expect(page.locator(".latency-chart")).toBeVisible();
 });
+
+test("service map: shows demo services and opens the latency view of one", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Service map" }).click();
+  await expect(page).toHaveURL(/#\/map$/);
+
+  const map = page.getByRole("region", { name: "Service map" });
+  const nodes = map.getByRole("link");
+  await expect(nodes.first()).toBeVisible();
+  expect(await nodes.count()).toBeGreaterThanOrEqual(3);
+
+  await nodes.first().click();
+  await expect(page).toHaveURL(/#\/latency\?service=[^&]+$/);
+  await expect(page.locator(".latency-tile")).toHaveCount(3);
+});
+
+test("flame graph: a trace has one frame per span", async ({ page }) => {
+  await page.goto("/");
+
+  const rows = page.getByTestId("trace-row");
+  await expect(rows.first()).toBeVisible();
+  await rows.first().getByRole("link").click();
+  await expect(page).toHaveURL(TRACE_HASH);
+
+  const waterfallRows = page.getByTestId("waterfall-row");
+  await expect(waterfallRows.first()).toBeVisible();
+  const spanCount = await waterfallRows.count();
+
+  const flameTab = page.getByRole("button", { name: "Flame graph", exact: true });
+  await flameTab.click();
+  await expect(flameTab).toHaveAttribute("aria-pressed", "true");
+
+  const frames = page
+    .getByRole("group", { name: "Flame graph of the spans" })
+    .locator(".flame-frame");
+  await expect(frames.first()).toBeVisible();
+  await expect(frames).toHaveCount(spanCount);
+});
