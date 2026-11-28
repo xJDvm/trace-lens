@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { latencyHash, parseRoute, traceHash } from "./route";
+import { latencyHash, parseRoute, serviceMapHash, traceHash } from "./route";
 
 const TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
 
@@ -36,6 +36,10 @@ describe("parseRoute", () => {
       "#/latency/extra",
       "#/latencies",
       "#latency",
+      "#/map/",
+      "#/maps",
+      "#/map?x=1",
+      "#map",
     ];
     for (const hash of invalid) {
       expect(parseRoute(hash), hash).toEqual({ screen: "list" });
@@ -84,5 +88,18 @@ describe("latencyHash", () => {
       expect(hash.startsWith("#/latency?service=")).toBe(true);
       expect(parseRoute(hash)).toEqual({ screen: "latency", service });
     }
+  });
+});
+
+describe("parseRoute for the service map", () => {
+  it("reads the service map hash", () => {
+    expect(parseRoute("#/map")).toEqual({ screen: "map" });
+  });
+});
+
+describe("serviceMapHash", () => {
+  it("is the hash that parseRoute reads as the service map", () => {
+    expect(serviceMapHash()).toBe("#/map");
+    expect(parseRoute(serviceMapHash())).toEqual({ screen: "map" });
   });
 });

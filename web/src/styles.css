@@ -78,7 +78,8 @@ h2 {
 }
 
 .trace-list,
-.latency-view {
+.latency-view,
+.service-map {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -338,6 +339,86 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.app-nav {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.app-nav a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.app-nav a:hover,
+.app-nav a:focus-visible {
+  text-decoration: underline;
+}
+
+.app-nav a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.service-map-scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+/* The drawing keeps a minimum width, so that its labels stay readable on a phone and scroll. */
+.service-map-chart {
+  display: block;
+  width: 100%;
+  min-width: 600px;
+  max-width: 720px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.map-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
+.map-edge-error {
+  stroke: var(--error);
+  opacity: 0.9;
+}
+
+.map-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.map-node-box {
+  fill: var(--surface-raised);
+  stroke-width: 2;
+}
+
+.map-node:hover .map-node-box,
+.map-node:focus-visible .map-node-box {
+  stroke-width: 5;
+}
+
+.map-node-name {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.map-node-rate {
+  fill: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-node-rate-error {
+  fill: var(--error);
+}
+
 .trace-view {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -584,7 +665,8 @@ tbody tr:hover {
   }
 
   .trace-list,
-  .latency-view {
+  .latency-view,
+  .service-map {
     padding: 14px;
   }
 

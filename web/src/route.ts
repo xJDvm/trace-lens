@@ -1,29 +1,37 @@
 /**
- * Hash routing for the single-page app. The list lives at `#/`, a trace at `#/trace/<id>` and the
- * latency view at `#/latency?service=<name>`, so the API never sees the route and a reload keeps
- * the screen.
+ * Hash routing for the single-page app. The list lives at `#/`, a trace at `#/trace/<id>`, the
+ * latency view at `#/latency?service=<name>` and the service map at `#/map`, so the API never
+ * sees the route and a reload keeps the screen.
  */
 
-/** The screen to show: the trace list, the waterfall of one trace, or a service's latency. */
+/**
+ * The screen to show: the trace list, the waterfall of one trace, a service's latency, or the
+ * service map.
+ */
 export type Route =
   | { readonly screen: "list" }
   | { readonly screen: "trace"; readonly traceId: string }
-  | { readonly screen: "latency"; readonly service: string | null };
+  | { readonly screen: "latency"; readonly service: string | null }
+  | { readonly screen: "map" };
 
 const LIST_ROUTE: Route = { screen: "list" };
+const MAP_ROUTE: Route = { screen: "map" };
 const TRACE_HASH = /^#\/trace\/([0-9a-f]{32})$/i;
 const LATENCY_HASH = /^#\/latency(?:\?(.*))?$/;
 
 /**
  * Reads the screen from a location hash.
  *
- * Anything that is not `#/trace/<32 hex digits>` or `#/latency` (with an optional `service`
- * query parameter) shows the list. The trace id is lower-cased so that it matches the ids the API
- * returns. An empty `service` parameter means that no service is chosen.
+ * Anything that is not `#/trace/<32 hex digits>`, `#/latency` (with an optional `service`
+ * query parameter) or `#/map` shows the list. The trace id is lower-cased so that it matches the
+ * ids the API returns. An empty `service` parameter means that no service is chosen.
  *
  * @param hash - The location hash, including the leading `#`, or an empty string.
  */
 export function parseRoute(hash: string): Route {
+  if (hash === serviceMapHash()) {
+    return MAP_ROUTE;
+  }
   const latency = LATENCY_HASH.exec(hash);
   if (latency !== null) {
     const service = new URLSearchParams(latency[1] ?? "").get("service");
@@ -57,4 +65,13 @@ export function latencyHash(service: string | null): string {
     return "#/latency";
   }
   return `#/latency?service=${encodeURIComponent(service)}`;
+}
+
+/**
+ * The hash that opens the service map.
+ *
+ * @returns `#/map`.
+ */
+export function serviceMapHash(): string {
+  return "#/map";
 }
