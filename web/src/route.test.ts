@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { latencyHash, parseRoute, serviceMapHash, traceHash } from "./route";
+import type { FilterText } from "./filters";
+import {
+  latencyHash,
+  listFilterText,
+  listHash,
+  parseRoute,
+  resumeListHash,
+  serviceMapHash,
+  traceHash,
+} from "./route";
 
 const TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+const NO_FILTERS: FilterText = { service: "", minMs: "", maxMs: "", error: "" };
 
 describe("parseRoute", () => {
   it("shows the list for an empty hash or the root path", () => {
@@ -101,5 +111,110 @@ describe("serviceMapHash", () => {
   it("is the hash that parseRoute reads as the service map", () => {
     expect(serviceMapHash()).toBe("#/map");
     expect(parseRoute(serviceMapHash())).toEqual({ screen: "map" });
+  });
+});
+
+describe("listHash", () => {
+  it("is the bare list hash when no filter is set", () => {
+    expect(listHash(NO_FILTERS)).toBe("#/");
+  });
+
+  it("writes every set filter as a query parameter", () => {
+    expect(listHash({ service: "api", minMs: "100", maxMs: "900", error: "true" })).toBe(
+      "#/?service=api&minMs=100&maxMs=900&error=true",
+    );
+  });
+
+  it("leaves out invalid durations and keeps only canonical numbers", () => {
+    expect(listHash({ ...NO_FILTERS, minMs: "-3", maxMs: " 42 " })).toBe("#/?maxMs=42");
+  });
+
+  it("percent-encodes the service name", () => {
+    expect(listHash({ ...NO_FILTERS, service: "a&b c" })).toBe("#/?service=a%26b+c");
+  });
+});
+
+describe("listFilterText", () => {
+  it("reads no filters from the bare list hash, an empty hash or another screen", () => {
+    for (const hash of ["", "#", "#/", `#/trace/${TRACE_ID}`, "#/map", "#/latency?service=api"]) {
+      expect(listFilterText(hash), hash).toEqual(NO_FILTERS);
+    }
+  });
+
+  it("reads each filter from the query", () => {
+    expect(listFilterText("#/?service=api&minMs=0&maxMs=900&error=false")).toEqual({
+      service: "api",
+      minMs: "0",
+      maxMs: "900",
+      error: "false",
+    });
+  });
+
+  it("drops durations that are not valid API values", () => {
+    expect(listFilterText("#/?minMs=-1&maxMs=1.5")).toEqual(NO_FILTERS);
+    expect(listFilterText("#/?minMs=9223372036854775807")).toEqual(NO_FILTERS);
+  });
+
+  it("drops an error value other than true or false", () => {
+    expect(listFilterText("#/?error=yes")).toEqual(NO_FILTERS);
+    expect(listFilterText("#/?error=TRUE")).toEqual(NO_FILTERS);
+  });
+
+  it("uses the first value of a repeated parameter", () => {
+    expect(listFilterText("#/?service=api&service=web").service).toBe("api");
+  });
+
+  it("ignores a query longer than 1024 characters", () => {
+    expect(listFilterText(`#/?service=${"a".repeat(1024)}`)).toEqual(NO_FILTERS);
+    expect(listFilterText(`#/?service=${"a".repeat(1000)}`).service).toHaveLength(1000);
+  });
+
+  it("never fails on arbitrary query text", () => {
+    const alphabet = "=&?%+#/ abcMinMsErroé\u0000";
+    let seed = 7;
+    for (let round = 0; round < 500; round++) {
+      let hash = "#/?";
+      for (let index = 0; index < 40; index++) {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        hash += alphabet[seed % alphabet.length];
+      }
+      const text = listFilterText(hash);
+      expect(listFilterText(listHash(text))).toEqual(text);
+    }
+  });
+});
+
+describe("list filters round trip through the hash", () => {
+  it("reads back the filters that listHash wrote", () => {
+    const cases: FilterText[] = [
+      NO_FILTERS,
+      { service: "checkout", minMs: "", maxMs: "", error: "" },
+      { service: "", minMs: "250", maxMs: "", error: "true" },
+      { service: "", minMs: "", maxMs: "9223372036854", error: "false" },
+      { service: "a&b c", minMs: "0", maxMs: "10", error: "" },
+      { service: "naïve+ü?#=x", minMs: "", maxMs: "", error: "" },
+    ];
+    for (const text of cases) {
+      expect(listFilterText(listHash(text)), listHash(text)).toEqual(text);
+    }
+  });
+
+  it("keeps the list screen when the filters are in the query", () => {
+    expect(parseRoute(listHash({ ...NO_FILTERS, service: "api" }))).toEqual({ screen: "list" });
+  });
+});
+
+describe("resumeListHash", () => {
+  it("restores the remembered list hash when the bare list hash is entered", () => {
+    expect(resumeListHash("#/", "#/?service=api")).toBe("#/?service=api");
+  });
+
+  it("keeps the bare list hash when nothing was remembered", () => {
+    expect(resumeListHash("#/", "#/")).toBeNull();
+  });
+
+  it("leaves every other hash alone", () => {
+    expect(resumeListHash("#/?service=web", "#/?service=api")).toBeNull();
+    expect(resumeListHash(`#/trace/${TRACE_ID}`, "#/?service=api")).toBeNull();
   });
 });

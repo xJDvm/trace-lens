@@ -8,9 +8,9 @@ import {
   type TraceFilters,
   type TraceSummary,
 } from "../api";
-import { EMPTY_FILTER_TEXT, parseFilters, type FilterText } from "../filters";
+import { parseFilters, type FilterText } from "../filters";
 import { durationPercent, formatDuration, formatRelativeTime } from "../format";
-import { latencyHash, traceHash } from "../route";
+import { latencyHash, listFilterText, listHash, traceHash } from "../route";
 
 /** A page to load: the first page of a filter set, or the page after `cursor` when appending. */
 interface PageRequest {
@@ -24,17 +24,19 @@ interface ListState {
   readonly cursor: TraceCursor | null;
 }
 
-const INITIAL_FILTERS = parseFilters(EMPTY_FILTER_TEXT);
 const NANOSECONDS_PER_MS = 1_000_000n;
 
 /**
- * The trace list with its filters: service, duration range and error status. Each row shows the
- * root operation and a duration bar scaled to the longest trace loaded so far.
+ * The trace list with its filters: service, duration range and error status. The filters start
+ * from the query of the location hash and are written back to it as the user changes them, so
+ * returning to the list from a trace shows the same rows. Each row shows the root operation and a
+ * duration bar scaled to the longest trace loaded so far.
  */
 export function TraceList() {
-  const [text, setText] = useState<FilterText>(EMPTY_FILTER_TEXT);
+  const [initialText] = useState<FilterText>(() => listFilterText(window.location.hash));
+  const [text, setText] = useState<FilterText>(initialText);
   const [request, setRequest] = useState<PageRequest>({
-    filters: INITIAL_FILTERS,
+    filters: parseFilters(initialText),
     cursor: null,
     append: false,
   });
@@ -87,6 +89,7 @@ export function TraceList() {
   const updateText = (next: FilterText) => {
     setText(next);
     setRequest({ filters: parseFilters(next), cursor: null, append: false });
+    window.history.replaceState(null, "", listHash(next));
   };
 
   const loadMore = () => {
@@ -122,6 +125,9 @@ export function TraceList() {
                 {name}
               </option>
             ))}
+            {text.service !== "" && !services.includes(text.service) && (
+              <option value={text.service}>{text.service}</option>
+            )}
           </select>
         </label>
         <label>
