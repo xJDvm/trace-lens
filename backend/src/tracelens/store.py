@@ -116,6 +116,21 @@ class TraceSummary:
         return self.end_ns - self.start_ns
 
 
+@dataclass(frozen=True, slots=True)
+class ServiceEdge:
+    """Calls from one service to another, aggregated over a set of traces.
+
+    ``calls`` counts parent-child span pairs where the caller span belongs to ``caller`` and the
+    child span to ``callee``. ``errors`` counts the child spans among them whose status code is
+    error.
+    """
+
+    caller: str
+    callee: str
+    calls: int
+    errors: int
+
+
 class Store:
     """Span and trace persistence backed by one SQLite database file.
 
@@ -282,6 +297,42 @@ class Store:
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
         return [int(row[0]) for row in rows]
+
+    def service_edges(self, since_ns: int | None, limit_traces: int) -> list[ServiceEdge]:
+        """Return the cross-service call edges of the ``limit_traces`` most recent traces.
+
+        Only traces starting at or after ``since_ns`` are considered when it is given. A call
+        is a span whose parent is stored and belongs to another service; calls between spans of
+        one service and calls from orphaned spans produce no edge. The result is sorted by
+        caller, then callee.
+
+        Raises:
+            ValueError: If ``limit_traces`` is below 1.
+        """
+        _check_limit(limit_traces)
+        trace_clauses: list[str] = []
+        params: dict[str, Any] = {"limit_traces": limit_traces}
+        if since_ns is not None:
+            trace_clauses.append("start_ns >= :since_ns")
+            params["since_ns"] = since_ns
+        sql = (
+            "SELECT p.service, c.service, COUNT(*), SUM(c.status_code = 2)"
+            " FROM spans AS c JOIN spans AS p"
+            " ON c.trace_id = p.trace_id AND c.parent_span_id = p.span_id"
+            " WHERE c.service <> p.service AND c.trace_id IN ("
+            + "SELECT trace_id FROM traces"
+            + _where(trace_clauses)
+            + " ORDER BY start_ns DESC, trace_id DESC LIMIT :limit_traces)"
+            + " GROUP BY p.service, c.service ORDER BY p.service, c.service"
+        )
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [
+            ServiceEdge(
+                caller=str(caller), callee=str(callee), calls=int(calls), errors=int(errors)
+            )
+            for caller, callee, calls, errors in rows
+        ]
 
 
 def _check_limit(limit: int) -> None:

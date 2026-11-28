@@ -11,7 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from tracelens.model import AttrValue, Span
-from tracelens.store import Store, TraceSummary
+from tracelens.store import ServiceEdge, Store, TraceSummary
 
 TRACE = "0af7651916cd43dd8448eb211c80319c"
 OTHER_TRACE = "1bf7651916cd43dd8448eb211c80319d"
@@ -394,3 +394,127 @@ def test_cursor_pagination_matches_full_listing(starts: list[int], limit: int) -
         assert [s.trace_id for s in _paginate(db, limit)] == [s.trace_id for s in expected]
     finally:
         db.close()
+
+
+def test_service_edges_follow_three_service_tree(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", service="web", name="GET /"),
+            _span("b", parent="a", service="api", start_ns=1_010),
+            _span("c", parent="b", service="db", start_ns=1_020),
+        ]
+    )
+    assert store.service_edges(None, 10) == [
+        ServiceEdge(caller="api", callee="db", calls=1, errors=0),
+        ServiceEdge(caller="web", callee="api", calls=1, errors=0),
+    ]
+
+
+def test_service_edges_aggregate_calls_and_count_errors(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", service="web"),
+            _span("b", parent="a", service="api", status_code=OK),
+            _span("c", parent="a", service="api", status_code=ERROR),
+            _span("d", parent="a", service="api", status_code=ERROR),
+            _span("e", parent="a", service="api", status_code=0),
+        ]
+    )
+    assert store.service_edges(None, 10) == [
+        ServiceEdge(caller="web", callee="api", calls=4, errors=2),
+    ]
+
+
+def test_service_edges_error_on_parent_does_not_count(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", service="web", status_code=ERROR),
+            _span("b", parent="a", service="api", status_code=OK),
+        ]
+    )
+    assert store.service_edges(None, 10) == [
+        ServiceEdge(caller="web", callee="api", calls=1, errors=0),
+    ]
+
+
+def test_service_edges_ignore_same_service_calls(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", service="api"),
+            _span("b", parent="a", service="api", status_code=ERROR),
+            _span("c", parent="b", service="api"),
+        ]
+    )
+    assert store.service_edges(None, 10) == []
+
+
+def test_service_edges_ignore_orphans(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("b", parent="missing", service="api"),
+            _span("c", parent="b", service="db", status_code=ERROR),
+        ]
+    )
+    assert store.service_edges(None, 10) == [
+        ServiceEdge(caller="api", callee="db", calls=1, errors=1),
+    ]
+    store.insert_spans([_span("a", service="web")])
+    assert store.service_edges(None, 10) == [
+        ServiceEdge(caller="api", callee="db", calls=1, errors=1),
+    ]
+
+
+def test_service_edges_empty_store(store: Store) -> None:
+    assert store.service_edges(None, 10) == []
+
+
+def test_service_edges_only_use_most_recent_traces(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", trace_id=TRACE, service="web", start_ns=100),
+            _span("b", trace_id=TRACE, parent="a", service="db", start_ns=110),
+        ]
+    )
+    for index in range(2):
+        trace_id = f"{index + 1:032x}"
+        store.insert_spans(
+            [
+                _span("a", trace_id=trace_id, service="web", start_ns=200 + index),
+                _span("b", trace_id=trace_id, parent="a", service="api", start_ns=210 + index),
+            ]
+        )
+    assert store.service_edges(None, 2) == [
+        ServiceEdge(caller="web", callee="api", calls=2, errors=0),
+    ]
+    assert store.service_edges(None, 3) == [
+        ServiceEdge(caller="web", callee="api", calls=2, errors=0),
+        ServiceEdge(caller="web", callee="db", calls=1, errors=0),
+    ]
+    assert store.service_edges(None, 1) == [
+        ServiceEdge(caller="web", callee="api", calls=1, errors=0),
+    ]
+
+
+def test_service_edges_since_ns_skips_older_traces(store: Store) -> None:
+    store.insert_spans(
+        [
+            _span("a", trace_id=TRACE, service="web", start_ns=100),
+            _span("b", trace_id=TRACE, parent="a", service="db", start_ns=110),
+        ]
+    )
+    store.insert_spans(
+        [
+            _span("a", trace_id=OTHER_TRACE, service="web", start_ns=500),
+            _span("b", trace_id=OTHER_TRACE, parent="a", service="api", start_ns=510),
+        ]
+    )
+    assert store.service_edges(500, 10) == [
+        ServiceEdge(caller="web", callee="api", calls=1, errors=0),
+    ]
+    assert store.service_edges(501, 10) == []
+    assert len(store.service_edges(100, 10)) == 2
+
+
+def test_service_edges_rejects_non_positive_limit(store: Store) -> None:
+    with pytest.raises(ValueError):
+        store.service_edges(None, 0)
