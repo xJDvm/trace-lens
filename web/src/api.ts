@@ -98,6 +98,29 @@ export interface LatencyStats {
   readonly histogram: readonly LatencyBucket[];
 }
 
+/** A service of the service map, with the spans it received as the callee of another service. */
+export interface ServiceMapNode {
+  readonly service: string;
+  /** Calls received from other services. */
+  readonly calls: number;
+  /** Received calls whose span ended in error. */
+  readonly errors: number;
+}
+
+/** A call from one service to another, aggregated over the recent traces. */
+export interface ServiceMapEdge {
+  readonly caller: string;
+  readonly callee: string;
+  readonly calls: number;
+  readonly errors: number;
+}
+
+/** The service map, as returned by `GET /api/service-map`. */
+export interface ServiceMap {
+  readonly nodes: readonly ServiceMapNode[];
+  readonly edges: readonly ServiceMapEdge[];
+}
+
 /** An HTTP error answered by the API, carrying the status and the server's message. */
 export class ApiError extends Error {
   readonly status: number;
@@ -178,6 +201,19 @@ export async function fetchServices(signal?: AbortSignal): Promise<string[]> {
     signal,
   });
   return readJson<string[]>(response);
+}
+
+/**
+ * Fetches the service map: the services and the calls between them.
+ *
+ * @throws {ApiError} When the API answers with a non-2xx status.
+ */
+export async function fetchServiceMap(signal?: AbortSignal): Promise<ServiceMap> {
+  const response = await fetch("/api/service-map", {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readJson<ServiceMap>(response);
 }
 
 /**
