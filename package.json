@@ -13,13 +13,14 @@
   ],
   "scripts": {
     "dev": "concurrently -n api,web \"uv run --directory backend python -m tracelens\" \"npm run dev --workspace web\"",
-    "typecheck": "tsc -b web",
+    "typecheck": "tsc -b web && tsc -p tsconfig.e2e.json",
     "lint": "eslint .",
     "test": "npm run test --workspace web",
     "e2e": "playwright test --trace off"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@types/node": "26.6.6",
     "concurrently": "~10.0.7",
     "eslint": "~9.39.5",
     "typescript": "~5.9.3",
