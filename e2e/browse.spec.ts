@@ -46,7 +46,27 @@ test("latency view shows percentile tiles and a histogram for a service", async 
   await page.getByRole("link", { name: "Latency and histogram" }).click();
   await expect(page).toHaveURL(/#\/latency$/);
 
-  await page.getByLabel("Service").selectOption("checkout");
+  const service = page.getByLabel("Service");
+  await expect(service.locator('option[value="checkout"]')).toBeAttached();
+  if ((await service.inputValue()) === "checkout") {
+    // Choosing the value that is already selected fires no change event, so leave it first.
+    const names = await service
+      .locator("option")
+      .evaluateAll((options) =>
+        options
+          .map((option) => option.value)
+          .filter((value) => value !== "" && value !== "checkout"),
+      );
+    const other = names[0];
+    if (other === undefined) {
+      throw new Error("the service list offers no service besides checkout");
+    }
+    await service.selectOption(other);
+    await expect(page).toHaveURL(
+      (url) => url.hash === `#/latency?service=${encodeURIComponent(other)}`,
+    );
+  }
+  await service.selectOption("checkout");
   await expect(page).toHaveURL(/#\/latency\?service=checkout$/);
 
   const tiles = page.locator(".latency-tile");
